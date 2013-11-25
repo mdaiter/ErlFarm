@@ -11,10 +11,13 @@ start_link() ->
   gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 start_server() ->
-  gen_server:call(?MODULE, {start}).
+  gen_server:cast(?MODULE, {start}).
 
 location(IPOrAddress) ->
   gen_server:call(?MODULE, {location, IPOrAddress}).
+
+retrieve(Data) ->
+  gen_server:call(?MODULE, {retrieve, Data}).
 
 init([]) ->
   erlang:process_flag(trap_exit, true),
@@ -25,21 +28,26 @@ init([]) ->
 %%
 %% GEN_SERVER STUFF
 %%
-handle_call({start}, _From, State) ->
+handle_cast({start}, State) ->
   start(),
-  {reply, started, State};
+  {noreply, started}.
+
 handle_call({location, IPOrAddress},_From, State) ->
   Location = getLocation(IPOrAddress),
   {reply, {IPOrAddress, Location}, State};
+
 handle_call({retrieve, Data}, _From, State) ->
-  {reply, retrieve(Data), State}.
+  {reply, retrieveI(Data), State}.
 %handle_cast({upload, Pid, Type, Tray, Id}, _From, State) ->
  
  %Stuff I'm not using but still need to export :P
-handle_cast(_Message, State) -> {noreply, State}.
 handle_info(_Message, State) -> {noreply, State}.
 terminate(_Reason, State) -> ok.
 code_change(_OldVersion, State, _Extra) -> {ok, State}.
+
+%%
+%%Hidden Functions
+%%
 
 init() ->
   application:start(crypto),
@@ -68,7 +76,7 @@ start() ->
 startListeningRemote() ->
   receive
     {Pid, {retrieve, Message}} ->
-      Pid ! retrieve(Message);
+      Pid ! retrieveI(Message);
     {Pid, location, IPOrAddress} ->
       Pid ! getLocation(IPOrAddress)
   end,
@@ -78,10 +86,15 @@ create_connection(Ip, Port) ->
   S = couchbeam:server_connection(Ip, Port, "", []),
   couchbeam:open_db(S, "testdb", []).
 
-retrieve(Data) ->
+retrieveI(Data) ->
   {ok, Db} = create_connection("localhost", 5984),
-  {ok, Doc2} = couchbeam:open_doc(Db, Data),
-  Doc2.
+  {Response, Doc2} = couchbeam_view:fetch(Db),
+  case Response of
+  	ok ->
+  	  Doc2;
+  	error ->
+      error
+  end.
 
 restarterUploading() ->
   process_flag(trap_exit, true),
